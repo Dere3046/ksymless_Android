@@ -3,11 +3,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      nofallback:
-        description: 'Disable KSYMLESS_FALLBACK'
-        type: boolean
-        default: false
 
 jobs:
   build:
@@ -23,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: make ENABLE_FALLBACK=${{ inputs.nofallback == true && '0' || '1' }}
+        run: make
       - uses: actions/upload-artifact@v4
         with:
           name: probe-${{ matrix.target }}

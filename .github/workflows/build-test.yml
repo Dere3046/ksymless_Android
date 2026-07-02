@@ -1,11 +1,6 @@
 name: build-test
 on:
   workflow_dispatch:
-    inputs:
-      nofallback:
-        description: 'Disable KSYMLESS_FALLBACK'
-        type: boolean
-        default: false
 
 jobs:
   build:
@@ -21,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: make TARGET=test ENABLE_FALLBACK=${{ inputs.nofallback == true && '0' || '1' }}
+        run: make TARGET=test
       - uses: actions/upload-artifact@v4
         with:
           name: test_probe-${{ matrix.target }}

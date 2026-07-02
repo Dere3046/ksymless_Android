@@ -391,23 +391,9 @@ void find_kallsyms_base(void)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	find_kloffs_v2(start);
-	if (!kloffs_addr) {
-#ifdef KSYMLESS_FALLBACK
-		pr_warn("[ksymless] v2 layout failed, trying v1\n");
-		if (find_kloffs_v1())
-			is_v1_layout = 1;
-#endif
-	}
 #else
 	is_v1_layout = 1;
-	if (!find_kloffs_v1()) {
-#ifdef KSYMLESS_FALLBACK
-		pr_warn("[ksymless] v1 layout failed, trying v2\n");
-		find_kloffs_v2(kernel_base + 0x100000);
-		if (kloffs_addr)
-			is_v1_layout = 0;
-#endif
-	}
+	find_kloffs_v1();
 #endif
 
 	if (!kloffs_addr) {
@@ -428,6 +414,25 @@ void find_kallsyms_base(void)
 				klnum_addr = 0;
 		}
 		klnames_addr = (klnum_addr + 4 + 7) & ~7ULL;
+
+		for (unsigned long pg = klnames_addr; ; pg += 16 * 0x1000) {
+			if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
+				break;
+			for (int pi = 0; pi < 16; pi++) {
+				unsigned int *buf = &bigbuf[pi * 1024];
+				unsigned long base = pg + pi * 0x1000;
+				for (int off = 512; off < 0x1000; off += 4) {
+					unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
+					if (ti[0] != 0)
+						continue;
+					if (!check_token_index(ti))
+						continue;
+					klindex_addr = base + off - 512;
+					goto found_index;
+				}
+			}
+		}
+found_index:
 
 		if (klindex_addr && klnum_val) {
 			unsigned short ti255;

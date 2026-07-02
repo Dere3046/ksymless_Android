@@ -3,11 +3,6 @@
  * core.h
  *
  * Copyright (C) 2026 dere3046
- *
- * KSYMLESS_FALLBACK: define to compile both layout detection paths,
- * enabling runtime fallback when the primary layout fails.
- * Undefine to compile only the version-guessed path (smaller .ko).
- * Set in Makefile via ccflags-y += -DKSYMLESS_FALLBACK
  */
 
 #ifndef CORE_H
