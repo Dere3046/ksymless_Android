@@ -488,12 +488,11 @@ found_index:
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0) && \
 	LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)
-		unsigned long seqs_size = (klnum_val * 3 + 7) & ~7ULL;
-		klseqs_addr = (kltable_addr - 7 - seqs_size) & ~7ULL;
-		klmarks_addr = (klseqs_addr - 7 - marks_size) & ~7ULL;
+		klseqs_addr = (kltable_addr - klnum_val * 3) & ~7ULL;
+		klmarks_addr = (klseqs_addr - marks_size) & ~7ULL;
 #else
 		klseqs_addr = 0;
-		klmarks_addr = (kltable_addr - 7 - marks_size) & ~7ULL;
+		klmarks_addr = (kltable_addr - marks_size) & ~7ULL;
 #endif
 	} else {
 		klbase_addr = (kloffs_addr + klnum_val * 4 + 7) & ~7ULL;
