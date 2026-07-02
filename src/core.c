@@ -9,6 +9,7 @@
 #include <linux/printk.h>
 #include <linux/uaccess.h>
 #include <linux/kallsyms.h>
+#include <linux/version.h>
 #include <asm/compiler.h>
 #ifndef ptrauth_strip_kernel_insn_pac
 #define ptrauth_strip_kernel_insn_pac(x) (x)
@@ -203,6 +204,8 @@ unsigned long kltable_addr;
 unsigned long klnames_addr;
 unsigned long klnum_addr;
 
+int is_v1_layout;
+
 static unsigned int bigbuf[16 * 1024];
 
 static int check_token_index(unsigned short *ti)
@@ -215,20 +218,16 @@ static int check_token_index(unsigned short *ti)
 	return 1;
 }
 
-static void find_kloffs_by_signature(unsigned long start)
+static void find_kloffs_v2(unsigned long start)
 {
 	int best_len = 0;
 	unsigned long best_addr = 0;
-	int off_hits = 0;
-	int ti_ok = 0;
-	int spr_pass = 0;
-	int spr_fail = 0;
-	int pages = 0;
+	unsigned long best_ti = 0;
+	int off_hits = 0, ti_ok = 0, spr_pass = 0, spr_fail = 0, pages = 0;
 
 	for (unsigned long pg = start; ; pg += 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
-			pr_info("[ksymless] scan self-term at pg=0x%lx (%d pages)\n",
-				pg, pages);
+			pr_info("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 			break;
 		}
 		pages++;
@@ -241,7 +240,6 @@ static void find_kloffs_by_signature(unsigned long start)
 				if (buf[off / 4] != 0)
 					continue;
 				off_hits++;
-
 				if (off < 512)
 					continue;
 				unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
@@ -258,7 +256,6 @@ static void find_kloffs_by_signature(unsigned long start)
 				if (safe_read(&z, (void *)cand, 4) || z != 0)
 					continue;
 
-				int vok = 1;
 				char names[4][64];
 				unsigned int ovals[4];
 				int skip = 0;
@@ -269,6 +266,7 @@ static void find_kloffs_by_signature(unsigned long start)
 					if (zv != 0)
 						break;
 				}
+				int vok = 1;
 				for (int i = 0; i < 4 && vok; i++) {
 					ovals[i] = 0;
 					if (safe_read(&ovals[i], (void *)(cand + (skip + i) * 4), 4))
@@ -297,12 +295,13 @@ static void find_kloffs_by_signature(unsigned long start)
 					len++;
 				}
 
-				pr_info("[ksymless] ti hit pg=0x%lx off=0x%x spr_ok sorted=%d [%s,%s,%s,%s]\n",
-					base, off, len, names[0], names[1], names[2], names[3]);
+				pr_info("[ksymless] ti hit pg=0x%lx sorted=%d [%s,%s,%s,%s]\n",
+					base, len, names[0], names[1], names[2], names[3]);
 
 				if (len > best_len) {
 					best_len = len;
 					best_addr = cand;
+					best_ti = ti_kern;
 				}
 			}
 		}
@@ -310,10 +309,101 @@ static void find_kloffs_by_signature(unsigned long start)
 
 	kloffs_addr = best_addr;
 	klnum_val = best_len;
+	klindex_addr = best_ti;
 
 	pr_info("[ksymless] off_hits=%d ti_ok=%d spr_pass=%d spr_fail=%d\n",
 		off_hits, ti_ok, spr_pass, spr_fail);
-	pr_info("[ksymless] best: addr=0x%lx sorted=%u\n", best_addr, best_len);
+	pr_info("[ksymless] v2 best: addr=0x%lx sorted=%u\n", best_addr, best_len);
+}
+
+static int find_kloffs_v1(void)
+{
+	int best_len = 0;
+	unsigned long best_addr = 0;
+	int pages = 0;
+
+	for (unsigned long pg = kernel_base + 0x100000; ; pg += 16 * 0x1000) {
+		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
+			pr_info("[ksymless] v1 scan term pg=0x%lx (%d pages)\n", pg, pages);
+			break;
+		}
+		pages++;
+
+		for (int pi = 0; pi < 16; pi++) {
+			unsigned int *buf = &bigbuf[pi * 1024];
+			unsigned long base = pg + pi * 0x1000;
+
+			for (int off = 0; off < 0x1000; off += 4) {
+				int run = 0, prev = -1;
+				int max_i = (4096 - off) / 4;
+				for (int i = 0; i < max_i; i++) {
+					unsigned int v = buf[(off + i * 4) / 4];
+					if ((int)v < prev)
+						break;
+					prev = (int)v;
+					run++;
+				}
+				if (run < max_i)
+					continue;
+
+				unsigned long cand = base + off;
+				for (int i = run; i < 500000; i++) {
+					unsigned int v;
+					if (safe_read(&v, (void *)(cand + i * 4), 4))
+						break;
+					if ((int)v < prev)
+						break;
+					prev = (int)v;
+					run++;
+				}
+
+				if (run < best_len || run < 10000)
+					continue;
+
+				unsigned long rb_check = (cand + run * 4 + 7) & ~7ULL;
+				u64 rb;
+				if (safe_read(&rb, (void *)rb_check, 8))
+					continue;
+				if ((rb & ~0x1FFFFFULL) != kernel_base)
+					continue;
+				unsigned long ns_check = (rb_check + 8 + 7) & ~7ULL;
+				unsigned int ns;
+				if (safe_read(&ns, (void *)ns_check, 4) || ns != (unsigned int)run)
+					continue;
+
+				int skip = 0;
+				for (skip = 0; skip < 20; skip++) {
+					u32 zv;
+					if (safe_read(&zv, (void *)(cand + skip * 4), 4))
+						break;
+					if (zv != 0)
+						break;
+				}
+				u32 v0;
+				char name[64];
+				if (safe_read(&v0, (void *)(cand + skip * 4), 4))
+					continue;
+				sprint_symbol(name, klbase_val + v0);
+				if (name[0] == '0' && name[1] == 'x')
+					continue;
+
+				pr_info("[ksymless] v1 hit pg=0x%lx sorted=%d %s\n",
+					base, run, name);
+
+				if (run > best_len) {
+					best_len = run;
+					best_addr = cand;
+				}
+			}
+		}
+	}
+
+	if (!best_addr)
+		return 0;
+	kloffs_addr = best_addr;
+	klnum_val = best_len;
+	pr_info("[ksymless] v1 best: addr=0x%lx sorted=%u\n", best_addr, best_len);
+	return 1;
 }
 
 void find_kallsyms_base(void)
@@ -327,73 +417,134 @@ void find_kallsyms_base(void)
 
 	unsigned long start = kernel_base + 0x100000;
 
-	pr_info("[ksymless] scan from 0x%lx\n", start);
-
-	find_kloffs_by_signature(start);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+	find_kloffs_v2(start);
+	if (!kloffs_addr) {
+#ifdef KSYMLESS_FALLBACK
+		pr_warn("[ksymless] v2 layout failed, trying v1\n");
+		if (find_kloffs_v1())
+			is_v1_layout = 1;
+#endif
+	}
+#else
+	is_v1_layout = 1;
+	if (!find_kloffs_v1()) {
+#ifdef KSYMLESS_FALLBACK
+		pr_warn("[ksymless] v1 layout failed, trying v2\n");
+		find_kloffs_v2(kernel_base + 0x100000);
+		if (kloffs_addr)
+			is_v1_layout = 0;
+#endif
+	}
+#endif
 
 	if (!kloffs_addr) {
 		pr_info("[ksymless] layout: offsets not found\n");
 		return;
 	}
 
-	klbase_addr = (kloffs_addr + klnum_val * 4 + 7) & ~7ULL;
-	klseqs_addr = klbase_addr + 8;
-	klindex_addr = kloffs_addr - 512;
-
-	u64 v64;
-	if (!safe_read(&v64, (void *)klbase_addr, 8))
-		klbase_val = v64;
-	pr_info("[ksymless] klbase_addr=0x%lx val=0x%llx\n",
-		klbase_addr, v64);
-
-	if (klindex_addr && klnum_val) {
-		unsigned short ti255;
-		if (!safe_read(&ti255, (void *)(klindex_addr + 255 * 2), 2)) {
-			unsigned long pos = klindex_addr - 1;
-			unsigned char c;
-			while (pos > 0) {
-				if (safe_read(&c, (void *)pos, 1) || c != 0)
-					break;
-				pos--;
-			}
-			while (pos > 0) {
-				if (safe_read(&c, (void *)pos, 1))
-					break;
-				if (c == 0)
-					break;
-				pos--;
-			}
-			kltable_addr = pos + 1 - ti255;
-			pr_info("[ksymless] kltable @ 0x%lx (ti255=%u)\n",
-				kltable_addr, ti255);
+	if (is_v1_layout) {
+		unsigned long rb_addr = (kloffs_addr + klnum_val * 4 + 7) & ~7ULL;
+		klbase_addr = rb_addr;
+		u64 v64;
+		if (!safe_read(&v64, (void *)rb_addr, 8))
+			klbase_val = v64;
+		klnum_addr = (rb_addr + 8 + 7) & ~7ULL;
+		{
+			u32 ns;
+			if (safe_read(&ns, (void *)klnum_addr, 4) || ns != klnum_val)
+				klnum_addr = 0;
 		}
-	}
+		klnames_addr = (klnum_addr + 4 + 7) & ~7ULL;
 
-	if (kltable_addr && klnum_val) {
+		if (klindex_addr && klnum_val) {
+			unsigned short ti255;
+			if (!safe_read(&ti255, (void *)(klindex_addr + 255 * 2), 2)) {
+				unsigned long pos = klindex_addr - 1;
+				unsigned char c;
+				while (pos > 0) {
+					if (safe_read(&c, (void *)pos, 1) || c != 0)
+						break;
+					pos--;
+				}
+				while (pos > 0) {
+					if (safe_read(&c, (void *)pos, 1))
+						break;
+					if (c == 0)
+						break;
+					pos--;
+				}
+				kltable_addr = pos + 1 - ti255;
+			}
+		}
+
 		unsigned int markers_cnt = (klnum_val + 255) / 256;
 		unsigned long marks_size = markers_cnt * 4;
-		unsigned long marks_end = (kltable_addr + 7) & ~7ULL;
-		klmarks_addr = marks_end - marks_size;
-	}
 
-	if (klmarks_addr && klnum_val) {
-		unsigned long end_addr = klmarks_addr > 0x300000 ?
-			klmarks_addr - 0x300000 : kernel_base;
-		end_addr &= ~3ULL;
-		for (unsigned long addr = klmarks_addr & ~3ULL;
-		     addr >= end_addr; addr -= 4) {
-			unsigned int v32;
-			if (safe_read(&v32, (void *)addr, 4))
-				continue;
-			if (v32 == klnum_val) {
-				klnum_addr = addr;
-				break;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0) && \
+	LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)
+		unsigned long seqs_size = (klnum_val * 3 + 7) & ~7ULL;
+		klseqs_addr = (kltable_addr - 7 - seqs_size) & ~7ULL;
+		klmarks_addr = (klseqs_addr - 7 - marks_size) & ~7ULL;
+#else
+		klseqs_addr = 0;
+		klmarks_addr = (kltable_addr - 7 - marks_size) & ~7ULL;
+#endif
+	} else {
+		klbase_addr = (kloffs_addr + klnum_val * 4 + 7) & ~7ULL;
+		klseqs_addr = klbase_addr + 8;
+
+		u64 v64;
+		if (!safe_read(&v64, (void *)klbase_addr, 8))
+			klbase_val = v64;
+
+		if (klindex_addr && klnum_val) {
+			unsigned short ti255;
+			if (!safe_read(&ti255, (void *)(klindex_addr + 255 * 2), 2)) {
+				unsigned long pos = klindex_addr - 1;
+				unsigned char c;
+				while (pos > 0) {
+					if (safe_read(&c, (void *)pos, 1) || c != 0)
+						break;
+					pos--;
+				}
+				while (pos > 0) {
+					if (safe_read(&c, (void *)pos, 1))
+						break;
+					if (c == 0)
+						break;
+					pos--;
+				}
+				kltable_addr = pos + 1 - ti255;
 			}
 		}
-	}
 
-	if (klnum_addr)
-		klnames_addr = (klnum_addr + 4 + 7) & ~7ULL;
+		if (kltable_addr && klnum_val) {
+			unsigned int markers_cnt = (klnum_val + 255) / 256;
+			unsigned long marks_size = markers_cnt * 4;
+			unsigned long marks_end = (kltable_addr + 7) & ~7ULL;
+			klmarks_addr = marks_end - marks_size;
+		}
+
+		if (klmarks_addr && klnum_val) {
+			unsigned long end_addr = klmarks_addr > 0x300000 ?
+				klmarks_addr - 0x300000 : kernel_base;
+			end_addr &= ~3ULL;
+			for (unsigned long addr = klmarks_addr & ~3ULL;
+			     addr >= end_addr; addr -= 4) {
+				unsigned int v32;
+				if (safe_read(&v32, (void *)addr, 4))
+					continue;
+				if (v32 == klnum_val) {
+					klnum_addr = addr;
+					break;
+				}
+			}
+		}
+
+		if (klnum_addr)
+			klnames_addr = (klnum_addr + 4 + 7) & ~7ULL;
+	}
 
 	pr_info("[ksymless] kallsyms data:\n");
 	pr_info("  klbase  @ 0x%lx = 0x%lx\n", klbase_addr, klbase_val);
@@ -404,6 +555,7 @@ void find_kallsyms_base(void)
 	pr_info("  kltable @ 0x%lx\n", kltable_addr);
 	pr_info("  klmarks @ 0x%lx\n", klmarks_addr);
 	pr_info("  klnames @ 0x%lx\n", klnames_addr);
+	pr_info("  layout  v%d\n", is_v1_layout ? 1 : 2);
 }
 
 unsigned long sym_addr(int idx)

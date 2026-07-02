@@ -9,6 +9,10 @@ endif
 
 ccflags-y += -Isrc
 ccflags-y += -std=gnu11
+ENABLE_FALLBACK ?= 1
+ifeq ($(ENABLE_FALLBACK),1)
+ccflags-y += -DKSYMLESS_FALLBACK
+endif
 ccflags-y += -Wno-declaration-after-statement
 ccflags-y += -Wno-unused-variable
 ccflags-y += -Wno-unused-function
