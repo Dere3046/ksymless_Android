@@ -29,6 +29,9 @@ adapted from the original x86_64 ksymless technique:
 Thanks to [汐の月](https://www.coolapk.com/u/1550124) for providing
 the device for GKI 6.6 testing.
 
+Thanks to [阿尔托莉雅·潘德拉贡](https://www.coolapk.com/u/41654149) for providing
+the device for GKI 6.1 testing.
+
 ## license
 
 GPL-2.0
