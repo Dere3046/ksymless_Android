@@ -8,6 +8,7 @@ obj-m := probe.o
 endif
 
 ccflags-y += -Isrc
+ccflags-y += -std=gnu11
 ccflags-y += -Wno-declaration-after-statement
 ccflags-y += -Wno-unused-variable
 ccflags-y += -Wno-unused-function

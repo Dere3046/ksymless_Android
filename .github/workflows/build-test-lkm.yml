@@ -1,0 +1,28 @@
+name: Build Test LKM for all GKI
+on:
+  workflow_dispatch:
+
+jobs:
+  build-matrix:
+    strategy:
+      matrix:
+        kmi:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ matrix.kmi }}-20260313
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make TARGET=test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test_probe-${{ matrix.kmi }}
+          path: test_probe.ko

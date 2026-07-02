@@ -11,7 +11,8 @@ jobs:
           - android16-6.12
           - android15-6.6
     container:
-      image: ghcr.io/ylarod/ddk:${{ matrix.target }}
+      image: ghcr.io/ylarod/ddk-min:${{ matrix.target }}-20260313
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
       - name: Build
