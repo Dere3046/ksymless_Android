@@ -3,20 +3,5 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - android16-6.12
-          - android15-6.6
-    container:
-      image: ghcr.io/ylarod/ddk:${{ matrix.target }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build
-        run: make TARGET=test
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test_probe-${{ matrix.target }}
-          path: test_probe.ko
+  build-test-kernel:
+    uses: ./.github/workflows/build-test-lkm.yml

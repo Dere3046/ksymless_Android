@@ -1,0 +1,24 @@
+name: DDK Build Test
+on:
+  workflow_call:
+    inputs:
+      kmi:
+        description: 'KMI version'
+        required: true
+        type: string
+
+jobs:
+  build-test:
+    name: Build test ${{ inputs.kmi }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-20260313
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make TARGET=test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test_probe-${{ inputs.kmi }}
+          path: test_probe.ko

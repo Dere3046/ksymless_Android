@@ -10,6 +10,9 @@
 #include <linux/uaccess.h>
 #include <linux/kallsyms.h>
 #include <asm/compiler.h>
+#ifndef ptrauth_strip_kernel_insn_pac
+#define ptrauth_strip_kernel_insn_pac(x) (x)
+#endif
 #include "core.h"
 
 int safe_read(void *dst, const void *src, size_t sz)

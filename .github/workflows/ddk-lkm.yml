@@ -1,0 +1,24 @@
+name: DDK Build
+on:
+  workflow_call:
+    inputs:
+      kmi:
+        description: 'KMI version'
+        required: true
+        type: string
+
+jobs:
+  build-ko:
+    name: Build ${{ inputs.kmi }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-20260313
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ inputs.kmi }}
+          path: probe.ko
