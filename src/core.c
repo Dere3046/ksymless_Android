@@ -415,7 +415,7 @@ void find_kallsyms_base(void)
 	pr_info("[ksymless] sprint=0x%lx kernel_base=0x%lx\n",
 		sprint_addr, kernel_base);
 
-	unsigned long start = kernel_base + 0x100000;
+	unsigned long start = sprint_addr;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	find_kloffs_v2(start);

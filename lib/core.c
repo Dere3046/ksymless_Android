@@ -387,7 +387,7 @@ void find_kallsyms_base(void)
 	kernel_base = sprint_addr & ~0x1FFFFFULL;
 	klbase_val = kernel_base;
 
-	unsigned long start = kernel_base + 0x100000;
+	unsigned long start = sprint_addr;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	find_kloffs_v2(start);
