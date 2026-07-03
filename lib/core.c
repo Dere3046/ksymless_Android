@@ -304,7 +304,7 @@ static int find_kloffs_v1(void)
 	int best_len = 0;
 	unsigned long best_addr = 0;
 
-	for (unsigned long pg = kernel_base + 0x100000; ; pg += 16 * 0x1000) {
+	for (unsigned long pg = sprint_addr; ; pg += 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
 			break;
 

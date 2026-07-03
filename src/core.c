@@ -322,7 +322,7 @@ static int find_kloffs_v1(void)
 	unsigned long best_addr = 0;
 	int pages = 0;
 
-	for (unsigned long pg = kernel_base + 0x100000; ; pg += 16 * 0x1000) {
+	for (unsigned long pg = sprint_addr; ; pg += 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
 			pr_info("[ksymless] v1 scan term pg=0x%lx (%d pages)\n", pg, pages);
 			break;
