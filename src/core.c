@@ -316,20 +316,18 @@ static void find_kloffs_v2(unsigned long start)
 	pr_info("[ksymless] v2 best: addr=0x%lx sorted=%u\n", best_addr, best_len);
 }
 
-static int find_kloffs_v1(void)
+static int discover_v1(unsigned long ti_addr)
 {
 	int best_len = 0;
 	unsigned long best_addr = 0;
 	int pages = 0;
 
-	for (unsigned long pg = sprint_addr; ; pg += 16 * 0x1000) {
-		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
-			pr_info("[ksymless] v1 scan term pg=0x%lx (%d pages)\n", pg, pages);
-			break;
-		}
+	for (unsigned long pg = ti_addr & ~0xFFFULL; pg >= kernel_base; pg -= 16 * 0x1000) {
+		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
+			continue;
 		pages++;
 
-		for (int pi = 0; pi < 16; pi++) {
+		for (int pi = 15; pi >= 0; pi--) {
 			unsigned int *buf = &bigbuf[pi * 1024];
 			unsigned long base = pg + pi * 0x1000;
 
@@ -361,6 +359,8 @@ static int find_kloffs_v1(void)
 					continue;
 
 				unsigned long rb_check = (cand + run * 4 + 7) & ~7ULL;
+				if (rb_check >= ti_addr + 0x10000)
+					continue;
 				u64 rb;
 				if (safe_read(&rb, (void *)rb_check, 8))
 					continue;
@@ -402,8 +402,33 @@ static int find_kloffs_v1(void)
 		return 0;
 	kloffs_addr = best_addr;
 	klnum_val = best_len;
-	pr_info("[ksymless] v1 best: addr=0x%lx sorted=%u\n", best_addr, best_len);
+	klindex_addr = ti_addr;
+	pr_info("[ksymless] v1 best: addr=0x%lx sorted=%u (%d pages)\n",
+		best_addr, best_len, pages);
 	return 1;
+}
+
+static unsigned long find_token_index(unsigned long start)
+{
+	for (unsigned long pg = start; ; pg += 16 * 0x1000) {
+		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
+			break;
+
+		for (int pi = 0; pi < 16; pi++) {
+			unsigned int *buf = &bigbuf[pi * 1024];
+			unsigned long base = pg + pi * 0x1000;
+
+			for (int off = 512; off < 0x1000; off += 4) {
+				unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
+				if (ti[0] != 0)
+					continue;
+				if (!check_token_index(ti))
+					continue;
+				return base + off - 512;
+			}
+		}
+	}
+	return 0;
 }
 
 void find_kallsyms_base(void)
@@ -415,13 +440,20 @@ void find_kallsyms_base(void)
 	pr_info("[ksymless] sprint=0x%lx kernel_base=0x%lx\n",
 		sprint_addr, kernel_base);
 
-	unsigned long start = sprint_addr;
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
-	find_kloffs_v2(start);
+	find_kloffs_v2(sprint_addr);
 #else
 	is_v1_layout = 1;
-	find_kloffs_v1();
+	unsigned long ti_addr = find_token_index(sprint_addr);
+	if (!ti_addr) {
+		pr_info("[ksymless] token_index not found\n");
+		return;
+	}
+	pr_info("[ksymless] ti=0x%lx\n", ti_addr);
+	if (!discover_v1(ti_addr)) {
+		pr_info("[ksymless] layout: offsets not found\n");
+		return;
+	}
 #endif
 
 	if (!kloffs_addr) {
