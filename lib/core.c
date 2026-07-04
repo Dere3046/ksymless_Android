@@ -237,10 +237,12 @@ static void find_kloffs_v2(unsigned long start)
 
 	for (unsigned long pg = start; ; pg += 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
-ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
+			ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 			break;
 		}
+#ifdef KSYMLESS_DEBUG
 		pages++;
+#endif
 
 		for (int pi = 0; pi < 16; pi++) {
 			unsigned int *buf = &bigbuf[pi * 1024];
@@ -249,13 +251,17 @@ ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 			for (int off = 0; off < 0x1000; off += 4) {
 				if (buf[off / 4] != 0)
 					continue;
+#ifdef KSYMLESS_DEBUG
 				off_hits++;
+#endif
 				if (pi == 0 && off < 512)
 					continue;
 				unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
 				if (!check_token_index(ti))
 					continue;
+#ifdef KSYMLESS_DEBUG
 				ti_ok++;
+#endif
 
 				unsigned long ti_kern = base + off - 512;
 				unsigned long cand = ti_kern + 512;
@@ -331,12 +337,16 @@ static int discover_v1(unsigned long ti_addr)
 {
 	int best_len = 0;
 	unsigned long best_addr = 0;
+#ifdef KSYMLESS_DEBUG
 	int pages = 0;
+#endif
 
 	for (unsigned long pg = ti_addr & ~0xFFFULL; pg >= kernel_base; pg -= 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
 			continue;
+#ifdef KSYMLESS_DEBUG
 		pages++;
+#endif
 
 		for (int pi = 15; pi >= 0; pi--) {
 			unsigned int *buf = &bigbuf[pi * 1024];
