@@ -319,6 +319,8 @@ static void find_kloffs_v2(unsigned long start)
 					best_len = len;
 					best_addr = cand;
 					best_ti = ti_kern;
+					ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d\n",
+						base, len);
 				}
 			}
 		}
@@ -408,12 +410,11 @@ static int discover_v1(unsigned long ti_addr)
 				if (name[0] == '0' && name[1] == 'x')
 					continue;
 
-				ks_dbg("[ksymless] v1 hit pg=0x%lx sorted=%d %s\n",
-					base, run, name);
-
 				if (run > best_len) {
 					best_len = run;
 					best_addr = cand;
+					ks_dbg("[ksymless] v1 hit pg=0x%lx sorted=%d %s\n",
+						base, run, name);
 				}
 			}
 		}
