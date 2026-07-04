@@ -417,7 +417,7 @@ void find_kallsyms_base(void)
 	find_kloffs_v2(sprint_addr);
 #else
 	is_v1_layout = 1;
-	unsigned long ti_addr = find_token_index(sprint_addr);
+	unsigned long ti_addr = find_token_index(sprint_addr & ~0xFFFULL);
 	if (!ti_addr) {
 		pr_info("[ksymless] token_index not found\n");
 		return;
