@@ -9,7 +9,7 @@
 #include <linux/printk.h>
 #include <linux/kprobes.h>
 #include <linux/kallsyms.h>
-#include "core.h"
+#include "../lib/core.h"
 #include "verify.h"
 
 typedef int (*reg_kp_t)(struct kprobe *);
