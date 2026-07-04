@@ -34,6 +34,12 @@ the device for GKI 6.6 testing.
 Thanks to [阿尔托莉雅·潘德拉贡](https://www.coolapk.com/u/41654149) for providing
 the device for GKI 6.1 testing.
 
+Thanks to [小初](https://www.coolapk.com/u/42372039) for providing
+the device for GKI 6.1 testing.
+
+Thanks to [haohao3001](https://github.com/haohao3001) for providing
+the device for GKI 6.12 testing.
+
 ## license
 
 GPL-2.0
