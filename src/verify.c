@@ -77,9 +77,14 @@ void verify_sct(void)
 		pr_info("[ksymless] SCT: kprobe unavailable, skip\n");
 		return;
 	}
-	if (!ref)
-		ref = (unsigned long)((unsigned long (*)(const char *))
-			resolve_addr("kallsyms_lookup_name"))("sys_call_table");
+	if (!ref) {
+		unsigned long addr = resolve_addr("kallsyms_lookup_name");
+		if (!addr) {
+			pr_info("[ksymless] SCT: lookup_name not found\n");
+			return;
+		}
+		ref = (unsigned long)((unsigned long (*)(const char *))addr)("sys_call_table");
+	}
 
 	pr_info("[ksymless] SCT: ours=0x%lx kprobe=0x%lx %s\n",
 		sys_call_table_addr, ref,

@@ -8,6 +8,7 @@
 #include <linux/module.h>
 #include <linux/printk.h>
 #include <linux/init.h>
+#include <linux/errno.h>
 
 #include "core.h"
 #include "verify.h"
@@ -30,6 +31,11 @@ static int __init probe_init(void)
 
 	find_kallsyms_base();
 	dump_kallsyms_layout();
+
+	if (!kloffs_addr) {
+		pr_info("[ksymless] discovery failed\n");
+		return -ENODATA;
+	}
 
 	verify_sct();
 	verify_kallsyms();

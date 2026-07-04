@@ -2,6 +2,7 @@
 #include <linux/module.h>
 #include <linux/printk.h>
 #include <linux/init.h>
+#include <linux/errno.h>
 #include "../lib/core.h"
 
 MODULE_LICENSE("GPL");
@@ -12,7 +13,7 @@ static int __init test_probe_init(void)
 
 	if (!klnum_val || !ksymless_klp) {
 		pr_info("[test] bootstrap incomplete\n");
-		return 0;
+		return -ENODATA;
 	}
 
 	unsigned long addr = ksymless_klp("_printk");

@@ -252,7 +252,7 @@ static void find_kloffs_v2(unsigned long start)
 				if (safe_read(&z, (void *)cand, 4) || z != 0)
 					continue;
 
-				char name[64];
+				char name[KSYM_SYMBOL_LEN];
 				unsigned int ovals[4];
 				int skip = 0;
 				for (skip = 0; skip < 20; skip++) {
@@ -363,7 +363,7 @@ static int discover_v1(unsigned long ti_addr)
 				u32 v0;
 				if (safe_read(&v0, (void *)(cand + skip * 4), 4))
 					continue;
-				char name[64];
+				char name[KSYM_SYMBOL_LEN];
 				sprint_symbol(name, klbase_val + v0);
 				if (name[0] == '0' && name[1] == 'x')
 					continue;
@@ -414,6 +414,7 @@ void find_kallsyms_base(void)
 	klbase_val = kernel_base;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+	is_v1_layout = 0;
 	find_kloffs_v2(sprint_addr);
 #else
 	is_v1_layout = 1;
@@ -483,7 +484,8 @@ found_index:
 						break;
 					pos--;
 				}
-				kltable_addr = pos + 1 - ti255;
+				if (pos + 1 > ti255)
+					kltable_addr = pos + 1 - ti255;
 			}
 		}
 
@@ -523,7 +525,8 @@ found_index:
 						break;
 					pos--;
 				}
-				kltable_addr = pos + 1 - ti255;
+				if (pos + 1 > ti255)
+					kltable_addr = pos + 1 - ti255;
 			}
 		}
 
@@ -596,15 +599,24 @@ int expand_sym(unsigned int off, char *buf, int max)
 		if (safe_read(&ti, (const void *)(klindex_addr + c * 2), 2))
 			return 0;
 		unsigned int ti_idx = ti;
-		const char *tptr = (const char *)(kltable_addr + ti_idx);
-		while (*tptr) {
-			if (skipped) {
-				*buf++ = *tptr;
-				max--;
-			} else {
-				skipped = 1;
+		{
+			unsigned long tp = kltable_addr + ti_idx;
+			for (;;) {
+				unsigned char ch;
+				if (safe_read(&ch, (const void *)tp, 1))
+					break;
+				if (!ch)
+					break;
+				if (skipped) {
+					if (max <= 1)
+						break;
+					*buf++ = ch;
+					max--;
+				} else {
+					skipped = 1;
+				}
+				tp++;
 			}
-			tptr++;
 		}
 	}
 	if (max)

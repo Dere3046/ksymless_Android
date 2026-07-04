@@ -14,7 +14,9 @@ ccflags-y += -Wno-unused-variable
 ccflags-y += -Wno-unused-function
 ccflags-y += -Wno-strict-prototypes
 
-KDIR := $(KDIR)
+ifeq ($(KDIR),)
+$(error KDIR must be set, e.g. "make KDIR=/path/to/kernel-source")
+endif
 PWD := $(shell pwd)
 
 all:
