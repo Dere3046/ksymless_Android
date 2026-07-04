@@ -13,7 +13,6 @@ ccflags-y += -Wno-declaration-after-statement
 ccflags-y += -Wno-unused-variable
 ccflags-y += -Wno-unused-function
 ccflags-y += -Wno-strict-prototypes
-ccflags-y += -Wno-frame-larger-than
 
 ifeq ($(KDIR),)
 $(error KDIR must be set, e.g. "make KDIR=/path/to/kernel-source")

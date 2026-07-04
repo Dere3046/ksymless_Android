@@ -231,7 +231,9 @@ static void find_kloffs_v2(unsigned long start)
 	int best_len = 0;
 	unsigned long best_addr = 0;
 	unsigned long best_ti = 0;
+#ifdef KSYMLESS_DEBUG
 	int off_hits = 0, ti_ok = 0, spr_pass = 0, spr_fail = 0, pages = 0;
+#endif
 
 	for (unsigned long pg = start; ; pg += 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
@@ -264,7 +266,7 @@ ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 				if (safe_read(&z, (void *)cand, 4) || z != 0)
 					continue;
 
-				char names[4][KSYM_SYMBOL_LEN];
+				char name[KSYM_SYMBOL_LEN];
 				unsigned int ovals[4];
 				int skip = 0;
 				for (skip = 0; skip < 20; skip++) {
@@ -279,18 +281,19 @@ ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 					ovals[i] = 0;
 					if (safe_read(&ovals[i], (void *)(cand + (skip + i) * 4), 4))
 						break;
-					sprint_symbol(names[i], klbase_val + ovals[i]);
-					if (names[i][0] == '0' && names[i][1] == 'x')
+					sprint_symbol(name, klbase_val + ovals[i]);
+					if (name[0] == '0' && name[1] == 'x')
 						vok = 0;
 				}
 				if (!vok) {
+#ifdef KSYMLESS_DEBUG
 					spr_fail++;
-					ks_dbg("[ksymless] spr_fail cand=0x%lx vals=[%u,%u,%u,%u] names=[%s,%s,%s,%s]\n",
-						cand, ovals[0], ovals[1], ovals[2], ovals[3],
-						names[0], names[1], names[2], names[3]);
+#endif
 					continue;
 				}
+#ifdef KSYMLESS_DEBUG
 				spr_pass++;
+#endif
 
 				int len = 0, prev = -1;
 				for (int i = 0; i < 500000; i++) {
@@ -303,8 +306,8 @@ ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 					len++;
 				}
 
-				ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d [%s,%s,%s,%s]\n",
-					base, len, names[0], names[1], names[2], names[3]);
+				ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d\n",
+					base, len);
 
 				if (len > best_len) {
 					best_len = len;
