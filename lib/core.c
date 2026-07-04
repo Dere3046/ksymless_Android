@@ -16,6 +16,12 @@
 #endif
 #include "core.h"
 
+#ifdef KSYMLESS_DEBUG
+#define ks_dbg(fmt, ...) pr_info(fmt, ##__VA_ARGS__)
+#else
+#define ks_dbg(fmt, ...) do {} while (0)
+#endif
+
 int safe_read(void *dst, const void *src, size_t sz)
 {
 	return copy_from_kernel_nofault(dst, src, sz);
@@ -62,9 +68,9 @@ int walk_stack(struct fp_ret *out, int max)
 
 void dump_frames(struct fp_ret *frames, int n)
 {
-	pr_info("[ksymless] x29 stack (%d frames):\n", n);
+ks_dbg("[ksymless] x29 stack (%d frames):\n", n);
 	for (int i = 0; i < n; i++)
-		pr_info("  [%2d] 0x%lx\n", i, frames[i].addr);
+ks_dbg("  [%2d] 0x%lx\n", i, frames[i].addr);
 }
 
 unsigned long sys_call_table_addr;
@@ -151,7 +157,7 @@ unsigned long find_sct(struct fp_ret *frames, int nf)
 	int na;
 	unsigned long best = 0;
 
-	pr_info("[ksymless] scanning frames for do_el0_svc:\n");
+ks_dbg("[ksymless] scanning frames for do_el0_svc:\n");
 
 	for (int i = nf - 1; i >= 0; i--) {
 		unsigned long addr = frames[i].addr;
@@ -168,7 +174,7 @@ unsigned long find_sct(struct fp_ret *frames, int nf)
 			unsigned long sct = adrps[j].target;
 			if (!check_sct(sct))
 				continue;
-			pr_info("[ksymless] SCT candidate @ 0x%lx\n", sct);
+ks_dbg("[ksymless] SCT candidate @ 0x%lx\n", sct);
 			if (!best) {
 				best = sct;
 				sys_call_table_addr = sct;
@@ -178,17 +184,17 @@ unsigned long find_sct(struct fp_ret *frames, int nf)
 	}
 
 	if (!best)
-		pr_info("[ksymless] SCT not found\n");
+ks_dbg("[ksymless] SCT not found\n");
 	return best;
 }
 
 void dump_sct(void)
 {
 	unsigned long v;
-	pr_info("[ksymless] sys_call_table entries:\n");
+ks_dbg("[ksymless] sys_call_table entries:\n");
 	for (int i = 0; i < 8; i++)
 		if (read_val(sys_call_table_addr + i * 8, &v))
-			pr_info("  [%3d] 0x%lx\n", i, v);
+ks_dbg("  [%3d] 0x%lx\n", i, v);
 }
 
 unsigned long sprint_addr;
@@ -225,10 +231,14 @@ static void find_kloffs_v2(unsigned long start)
 	int best_len = 0;
 	unsigned long best_addr = 0;
 	unsigned long best_ti = 0;
+	int off_hits = 0, ti_ok = 0, spr_pass = 0, spr_fail = 0, pages = 0;
 
 	for (unsigned long pg = start; ; pg += 16 * 0x1000) {
-		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
+		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
+ks_dbg("[ksymless] v2 scan term pg=0x%lx (%d pages)\n", pg, pages);
 			break;
+		}
+		pages++;
 
 		for (int pi = 0; pi < 16; pi++) {
 			unsigned int *buf = &bigbuf[pi * 1024];
@@ -237,11 +247,13 @@ static void find_kloffs_v2(unsigned long start)
 			for (int off = 0; off < 0x1000; off += 4) {
 				if (buf[off / 4] != 0)
 					continue;
+				off_hits++;
 				if (pi == 0 && off < 512)
 					continue;
 				unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
 				if (!check_token_index(ti))
 					continue;
+				ti_ok++;
 
 				unsigned long ti_kern = base + off - 512;
 				unsigned long cand = ti_kern + 512;
@@ -252,7 +264,7 @@ static void find_kloffs_v2(unsigned long start)
 				if (safe_read(&z, (void *)cand, 4) || z != 0)
 					continue;
 
-				char name[KSYM_SYMBOL_LEN];
+				char names[4][KSYM_SYMBOL_LEN];
 				unsigned int ovals[4];
 				int skip = 0;
 				for (skip = 0; skip < 20; skip++) {
@@ -267,12 +279,18 @@ static void find_kloffs_v2(unsigned long start)
 					ovals[i] = 0;
 					if (safe_read(&ovals[i], (void *)(cand + (skip + i) * 4), 4))
 						break;
-					sprint_symbol(name, klbase_val + ovals[i]);
-					if (name[0] == '0' && name[1] == 'x')
+					sprint_symbol(names[i], klbase_val + ovals[i]);
+					if (names[i][0] == '0' && names[i][1] == 'x')
 						vok = 0;
 				}
-				if (!vok)
+				if (!vok) {
+					spr_fail++;
+					ks_dbg("[ksymless] spr_fail cand=0x%lx vals=[%u,%u,%u,%u] names=[%s,%s,%s,%s]\n",
+						cand, ovals[0], ovals[1], ovals[2], ovals[3],
+						names[0], names[1], names[2], names[3]);
 					continue;
+				}
+				spr_pass++;
 
 				int len = 0, prev = -1;
 				for (int i = 0; i < 500000; i++) {
@@ -284,6 +302,9 @@ static void find_kloffs_v2(unsigned long start)
 					prev = (int)v;
 					len++;
 				}
+
+				ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d [%s,%s,%s,%s]\n",
+					base, len, names[0], names[1], names[2], names[3]);
 
 				if (len > best_len) {
 					best_len = len;
@@ -297,16 +318,22 @@ static void find_kloffs_v2(unsigned long start)
 	kloffs_addr = best_addr;
 	klnum_val = best_len;
 	klindex_addr = best_ti;
+
+ks_dbg("[ksymless] off_hits=%d ti_ok=%d spr_pass=%d spr_fail=%d\n",
+		off_hits, ti_ok, spr_pass, spr_fail);
+ks_dbg("[ksymless] v2 best: addr=0x%lx sorted=%u\n", best_addr, best_len);
 }
 
 static int discover_v1(unsigned long ti_addr)
 {
 	int best_len = 0;
 	unsigned long best_addr = 0;
+	int pages = 0;
 
 	for (unsigned long pg = ti_addr & ~0xFFFULL; pg >= kernel_base; pg -= 16 * 0x1000) {
 		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
 			continue;
+		pages++;
 
 		for (int pi = 15; pi >= 0; pi--) {
 			unsigned int *buf = &bigbuf[pi * 1024];
@@ -361,12 +388,15 @@ static int discover_v1(unsigned long ti_addr)
 						break;
 				}
 				u32 v0;
+				char name[KSYM_SYMBOL_LEN];
 				if (safe_read(&v0, (void *)(cand + skip * 4), 4))
 					continue;
-				char name[KSYM_SYMBOL_LEN];
 				sprint_symbol(name, klbase_val + v0);
 				if (name[0] == '0' && name[1] == 'x')
 					continue;
+
+				ks_dbg("[ksymless] v1 hit pg=0x%lx sorted=%d %s\n",
+					base, run, name);
 
 				if (run > best_len) {
 					best_len = run;
@@ -381,6 +411,8 @@ static int discover_v1(unsigned long ti_addr)
 	kloffs_addr = best_addr;
 	klnum_val = best_len;
 	klindex_addr = ti_addr;
+ks_dbg("[ksymless] v1 best: addr=0x%lx sorted=%u (%d pages)\n",
+		best_addr, best_len, pages);
 	return 1;
 }
 
@@ -413,6 +445,9 @@ void find_kallsyms_base(void)
 	kernel_base = sprint_addr & ~0x1FFFFFULL;
 	klbase_val = kernel_base;
 
+ks_dbg("[ksymless] sprint=0x%lx kernel_base=0x%lx\n",
+		sprint_addr, kernel_base);
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	is_v1_layout = 0;
 	find_kloffs_v2(sprint_addr);
@@ -420,17 +455,18 @@ void find_kallsyms_base(void)
 	is_v1_layout = 1;
 	unsigned long ti_addr = find_token_index(sprint_addr & ~0xFFFULL);
 	if (!ti_addr) {
-		pr_info("[ksymless] token_index not found\n");
+ks_dbg("[ksymless] token_index not found\n");
 		return;
 	}
+ks_dbg("[ksymless] ti=0x%lx\n", ti_addr);
 	if (!discover_v1(ti_addr)) {
-		pr_info("[ksymless] layout: offsets not found\n");
+ks_dbg("[ksymless] layout: offsets not found\n");
 		return;
 	}
 #endif
 
 	if (!kloffs_addr) {
-		pr_info("[ksymless] layout: offsets not found\n");
+ks_dbg("[ksymless] layout: offsets not found\n");
 		return;
 	}
 
@@ -484,7 +520,7 @@ found_index:
 						break;
 					pos--;
 				}
-				if (pos + 1 > ti255)
+					if (pos + 1 > ti255)
 					kltable_addr = pos + 1 - ti255;
 			}
 		}
@@ -525,7 +561,7 @@ found_index:
 						break;
 					pos--;
 				}
-				if (pos + 1 > ti255)
+					if (pos + 1 > ti255)
 					kltable_addr = pos + 1 - ti255;
 			}
 		}
@@ -557,13 +593,22 @@ found_index:
 			klnames_addr = (klnum_addr + 4 + 7) & ~7ULL;
 	}
 
+ks_dbg("[ksymless] kallsyms data:\n");
+ks_dbg("  klbase  @ 0x%lx = 0x%lx\n", klbase_addr, klbase_val);
+ks_dbg("  kloffs  @ 0x%lx\n", kloffs_addr);
+ks_dbg("  klnum   @ 0x%lx = %u\n", klnum_addr, klnum_val);
+ks_dbg("  klindex @ 0x%lx\n", klindex_addr);
+ks_dbg("  klseqs  @ 0x%lx\n", klseqs_addr);
+ks_dbg("  kltable @ 0x%lx\n", kltable_addr);
+ks_dbg("  klmarks @ 0x%lx\n", klmarks_addr);
+ks_dbg("  klnames @ 0x%lx\n", klnames_addr);
+	ks_dbg("  layout  v%d\n", is_v1_layout ? 1 : 2);
+
 	if (klbase_addr && kloffs_addr) {
 		unsigned long addr = kallsyms_name_to_addr("kallsyms_lookup_name");
 		if (addr)
 			ksymless_klp = (unsigned long (*)(const char *))addr;
 	}
-
-	pr_info("[ksymless] %u symbols\n", klnum_val);
 }
 
 unsigned long sym_addr(int idx)

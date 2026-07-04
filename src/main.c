@@ -10,7 +10,7 @@
 #include <linux/init.h>
 #include <linux/errno.h>
 
-#include "core.h"
+#include "../lib/core.h"
 #include "verify.h"
 
 MODULE_LICENSE("GPL");

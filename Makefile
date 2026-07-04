@@ -1,13 +1,13 @@
-probe-objs := src/main.o src/core.o src/verify.o
+probe-objs := src/main.o lib/core.o src/verify.o
 test_probe-objs := test/test_main.o lib/core.o
 
 ifeq ($(TARGET),test)
 obj-m := test_probe.o
 else
 obj-m := probe.o
+ccflags-y += -DKSYMLESS_DEBUG
 endif
 
-ccflags-y += -Isrc
 ccflags-y += -std=gnu11
 ccflags-y += -Wno-declaration-after-statement
 ccflags-y += -Wno-unused-variable
