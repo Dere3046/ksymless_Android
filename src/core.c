@@ -240,7 +240,7 @@ static void find_kloffs_v2(unsigned long start)
 				if (buf[off / 4] != 0)
 					continue;
 				off_hits++;
-				if (off < 512)
+				if (pi == 0 && off < 512)
 					continue;
 				unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
 				if (!check_token_index(ti))
