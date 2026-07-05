@@ -234,7 +234,7 @@ static int check_ti_strong(unsigned short *ti)
 	for (int i = 1; i < 256; i++)
 		if (ti[i] <= ti[i - 1])
 			return 0;
-	return ti[0x21] - ti[0x20] == 2 && ti[0x7E] - ti[0x20] == 188;
+	return ti['b'] - ti['a'] == 2 && ti['z'] - ti['a'] == 50;
 }
 
 static int verify_offsets_rb(unsigned long cand, int len,
