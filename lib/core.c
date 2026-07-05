@@ -268,39 +268,6 @@ static void find_kloffs_v2(unsigned long start)
 				if (cand & 7)
 					cand = (cand + 7) & ~7ULL;
 
-				unsigned int z;
-				if (safe_read(&z, (void *)cand, 4) || z != 0)
-					continue;
-
-				char name[KSYM_SYMBOL_LEN];
-				unsigned int ovals[4];
-				int skip = 0;
-				for (skip = 0; skip < 20; skip++) {
-					u32 zv;
-					if (safe_read(&zv, (void *)(cand + skip * 4), 4))
-						break;
-					if (zv != 0)
-						break;
-				}
-				int vok = 1;
-				for (int i = 0; i < 4 && vok; i++) {
-					ovals[i] = 0;
-					if (safe_read(&ovals[i], (void *)(cand + (skip + i) * 4), 4))
-						break;
-					sprint_symbol(name, klbase_val + ovals[i]);
-					if (name[0] == '0' && name[1] == 'x')
-						vok = 0;
-				}
-				if (!vok) {
-#ifdef KSYMLESS_DEBUG
-					spr_fail++;
-#endif
-					continue;
-				}
-#ifdef KSYMLESS_DEBUG
-				spr_pass++;
-#endif
-
 				int len = 0, prev = -1;
 				for (int i = 0; i < 500000; i++) {
 					unsigned int v;
@@ -311,17 +278,43 @@ static void find_kloffs_v2(unsigned long start)
 					prev = (int)v;
 					len++;
 				}
+				if (len < 10000 || len <= best_len)
+					continue;
 
-				ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d\n",
-					base, len);
+				unsigned long rb_check = (cand + len * 4 + 7) & ~7ULL;
+				unsigned long rb;
+				if (safe_read(&rb, (void *)rb_check, 8))
+					continue;
 
-				if (len > best_len) {
-					best_len = len;
-					best_addr = cand;
-					best_ti = ti_kern;
-					ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d\n",
-						base, len);
+				int skip = 0;
+				for (skip = 0; skip < 20; skip++) {
+					u32 zv;
+					if (safe_read(&zv, (void *)(cand + skip * 4), 4))
+						break;
+					if (zv != 0)
+						break;
 				}
+				u32 v0;
+				char name[KSYM_SYMBOL_LEN];
+				if (safe_read(&v0, (void *)(cand + skip * 4), 4))
+					continue;
+				sprint_symbol(name, rb + v0);
+				if (name[0] == '0' && name[1] == 'x') {
+#ifdef KSYMLESS_DEBUG
+					spr_fail++;
+#endif
+					continue;
+				}
+#ifdef KSYMLESS_DEBUG
+				spr_pass++;
+#endif
+
+				ks_dbg("[ksymless] ti hit pg=0x%lx sorted=%d %s\n",
+					base, len, name);
+
+				best_len = len;
+				best_addr = cand;
+				best_ti = ti_kern;
 			}
 		}
 	}
@@ -333,61 +326,6 @@ static void find_kloffs_v2(unsigned long start)
 ks_dbg("[ksymless] off_hits=%d ti_ok=%d spr_pass=%d spr_fail=%d\n",
 		off_hits, ti_ok, spr_pass, spr_fail);
 ks_dbg("[ksymless] v2 best: addr=0x%lx sorted=%u\n", best_addr, best_len);
-}
-
-static int try_forward(unsigned long ti_addr)
-{
-	unsigned long cand = ti_addr + 512;
-	if (cand & 7)
-		cand = (cand + 7) & ~7ULL;
-
-	unsigned int z;
-	if (safe_read(&z, (void *)cand, 4) || z != 0)
-		return 0;
-
-	int len = 0, prev = -1;
-	for (int i = 0; i < 500000; i++) {
-		unsigned int v;
-		if (safe_read(&v, (void *)(cand + i * 4), 4))
-			break;
-		if ((int)v < prev)
-			break;
-		prev = (int)v;
-		len++;
-	}
-	if (len < 10000)
-		return 0;
-
-	unsigned long rb_check = (cand + len * 4 + 7) & ~7ULL;
-	unsigned long rb;
-	if (safe_read(&rb, (void *)rb_check, 8))
-		return 0;
-
-	int skip = 0;
-	for (skip = 0; skip < 20; skip++) {
-		u32 zv;
-		if (safe_read(&zv, (void *)(cand + skip * 4), 4))
-			return 0;
-		if (zv != 0)
-			break;
-	}
-
-	u32 v0;
-	char name[KSYM_SYMBOL_LEN];
-	if (safe_read(&v0, (void *)(cand + skip * 4), 4))
-		return 0;
-	sprint_symbol(name, rb + v0);
-	if (name[0] == '0' && name[1] == 'x')
-		return 0;
-
-	ks_dbg("[ksymless] forward: sorted=%d %s\n", len, name);
-
-	kloffs_addr = cand;
-	klnum_val = len;
-	klindex_addr = ti_addr;
-	klbase_addr = rb_check;
-	klbase_val = rb;
-	return 1;
 }
 
 static int discover_v1(unsigned long ti_addr)
@@ -515,17 +453,17 @@ void find_kallsyms_base(void)
 ks_dbg("[ksymless] sprint=0x%lx kernel_base=0x%lx\n",
 		sprint_addr, kernel_base);
 
-	unsigned long ti_addr = find_token_index(sprint_addr & ~0xFFFULL);
-	if (!ti_addr) {
-ks_dbg("[ksymless] token_index not found\n");
-		return;
-	}
-ks_dbg("[ksymless] ti=0x%lx\n", ti_addr);
-
-	if (try_forward(ti_addr)) {
+	find_kloffs_v2(sprint_addr);
+	if (kloffs_addr) {
 		is_v1_layout = 0;
 	} else {
 		is_v1_layout = 1;
+		unsigned long ti_addr = find_token_index(sprint_addr & ~0xFFFULL);
+		if (!ti_addr) {
+ks_dbg("[ksymless] token_index not found\n");
+			return;
+		}
+ks_dbg("[ksymless] ti=0x%lx\n", ti_addr);
 		if (!discover_v1(ti_addr)) {
 ks_dbg("[ksymless] layout: offsets not found\n");
 			return;
