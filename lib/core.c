@@ -385,6 +385,30 @@ static unsigned long find_token_index(unsigned long start)
 	return 0;
 }
 
+static unsigned long detect_seqs(unsigned long cand, unsigned int n)
+{
+	if (!cand || !n)
+		return 0;
+
+	int points[] = {0, 1, 2, n/4, n/4+1, n/4+2, n/2, n/2+1, n/2+2,
+			3*n/4, 3*n/4+1, 3*n/4+2, n-3, n-2, n-1};
+	int np = sizeof(points) / sizeof(points[0]);
+
+	for (int i = 0; i < np; i++) {
+		int idx = points[i];
+		if (idx < 0 || idx >= (int)n)
+			return 0;
+		unsigned char buf[3];
+		unsigned int seq;
+		if (safe_read(buf, (void *)(cand + idx * 3), 3))
+			return 0;
+		seq = (buf[0] << 16) | (buf[1] << 8) | buf[2];
+		if (seq >= n)
+			return 0;
+	}
+	return cand;
+}
+
 void find_kallsyms_base(void)
 {
 	sprint_addr = (unsigned long)&sprint_symbol;
@@ -444,17 +468,15 @@ ks_dbg("[ksymless] layout: offsets not found\n");
 		unsigned int markers_cnt = (klnum_val + 255) / 256;
 		unsigned long marks_size = markers_cnt * 4;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0) && \
-	LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)
-		klseqs_addr = (kltable_addr - klnum_val * 3) & ~7ULL;
-		klmarks_addr = (klseqs_addr - marks_size) & ~7ULL;
-#else
-		klseqs_addr = 0;
-		klmarks_addr = (kltable_addr - marks_size) & ~7ULL;
-#endif
+		unsigned long seqs_cand = kltable_addr ? (kltable_addr - klnum_val * 3) & ~7ULL : 0;
+		klseqs_addr = detect_seqs(seqs_cand, klnum_val);
+		if (klseqs_addr)
+			klmarks_addr = (klseqs_addr - marks_size) & ~7ULL;
+		else
+			klmarks_addr = (kltable_addr - marks_size) & ~7ULL;
 	} else {
 		klbase_addr = (kloffs_addr + klnum_val * 4 + 7) & ~7ULL;
-		klseqs_addr = klbase_addr + 8;
+		klseqs_addr = detect_seqs(klbase_addr + 8, klnum_val);
 
 		u64 v64;
 		if (!safe_read(&v64, (void *)klbase_addr, 8))
