@@ -453,6 +453,7 @@ void find_kallsyms_base(void)
 ks_dbg("[ksymless] sprint=0x%lx kernel_base=0x%lx\n",
 		sprint_addr, kernel_base);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	find_kloffs_v2(sprint_addr);
 	if (kloffs_addr) {
 		is_v1_layout = 0;
@@ -469,6 +470,23 @@ ks_dbg("[ksymless] layout: offsets not found\n");
 			return;
 		}
 	}
+#else
+	is_v1_layout = 1;
+	unsigned long ti_addr = find_token_index(sprint_addr & ~0xFFFULL);
+	if (ti_addr) {
+ks_dbg("[ksymless] ti=0x%lx\n", ti_addr);
+		discover_v1(ti_addr);
+	}
+	if (!kloffs_addr) {
+		find_kloffs_v2(sprint_addr);
+		if (kloffs_addr)
+			is_v1_layout = 0;
+	}
+	if (!kloffs_addr) {
+ks_dbg("[ksymless] layout: offsets not found\n");
+		return;
+	}
+#endif
 
 	if (!kloffs_addr) {
 ks_dbg("[ksymless] layout: offsets not found\n");
