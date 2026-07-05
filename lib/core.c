@@ -226,122 +226,36 @@ static int check_token_index(unsigned short *ti)
 	return 1;
 }
 
-static int discover_universal(unsigned long ti_addr)
+
+static int check_ti_strong(unsigned short *ti)
 {
-	int best_len = 0;
-	unsigned long best_cand = 0;
-#ifdef KSYMLESS_DEBUG
-	int bwd_pages = 0, fwd_pages = 0;
-#endif
-
-	for (unsigned long pg = ti_addr & ~0xFFFULL; pg >= kernel_base; pg -= 16 * 0x1000) {
-		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
-			continue;
-#ifdef KSYMLESS_DEBUG
-		bwd_pages++;
-#endif
-		for (int pi = 15; pi >= 0; pi--) {
-			unsigned int *buf = &bigbuf[pi * 1024];
-			unsigned long base = pg + pi * 0x1000;
-
-			for (int off = 0; off < 0x1000; off += 4) {
-				int run = 0, prev = -1;
-				int max_i = (4096 - off) / 4;
-				for (int i = 0; i < max_i; i++) {
-					unsigned int v = buf[(off + i * 4) / 4];
-					if ((int)v < prev)
-						break;
-					prev = (int)v;
-					run++;
-				}
-				if (run < max_i)
-					continue;
-
-				unsigned long cand = base + off;
-				for (int i = run; i < 500000; i++) {
-					unsigned int v;
-					if (safe_read(&v, (void *)(cand + i * 4), 4))
-						break;
-					if ((int)v < prev)
-						break;
-					prev = (int)v;
-					run++;
-				}
-				if (run > best_len && run >= 5000) {
-					best_len = run;
-					best_cand = cand;
-				}
-			}
-		}
-	}
-
-	{
-		unsigned long fwd_end = ti_addr + 0x400000;
-		for (unsigned long pg = (ti_addr + 0x1000) & ~0xFFFULL;
-		     pg < fwd_end; pg += 16 * 0x1000) {
-			if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
-				break;
-#ifdef KSYMLESS_DEBUG
-			fwd_pages++;
-#endif
-			for (int pi = 0; pi < 16; pi++) {
-				unsigned int *buf = &bigbuf[pi * 1024];
-				unsigned long base = pg + pi * 0x1000;
-
-				for (int off = 0; off < 0x1000; off += 4) {
-					int run = 0, prev = -1;
-					int max_i = (4096 - off) / 4;
-					for (int i = 0; i < max_i; i++) {
-						unsigned int v = buf[(off + i * 4) / 4];
-						if ((int)v < prev)
-							break;
-						prev = (int)v;
-						run++;
-					}
-					if (run < max_i)
-						continue;
-
-					unsigned long cand = base + off;
-					for (int i = run; i < 500000; i++) {
-						unsigned int v;
-						if (safe_read(&v, (void *)(cand + i * 4), 4))
-							break;
-						if ((int)v < prev)
-							break;
-						prev = (int)v;
-						run++;
-					}
-					if (run > best_len && run >= 5000) {
-						best_len = run;
-						best_cand = cand;
-					}
-				}
-			}
-		}
-	}
-
-	if (best_len < 5000) {
-		ks_dbg("[ksymless] no sorted run >= 5000 (%d bwd, %d fwd pages)\n",
-			bwd_pages, fwd_pages);
+	if (ti[0] != 0)
 		return 0;
-	}
-	ks_dbg("[ksymless] best sorted run: cand=0x%lx len=%d\n",
-		best_cand, best_len);
+	for (int i = 1; i < 256; i++)
+		if (ti[i] <= ti[i - 1])
+			return 0;
+	return ti[0x21] - ti[0x20] == 2 && ti[0x7E] - ti[0x20] == 188;
+}
 
-	unsigned long base_rb = (best_cand + best_len * 4 + 7) & ~7ULL;
+static int verify_offsets_rb(unsigned long cand, int len,
+			      unsigned long *rb_out, unsigned long *rb_addr_out)
+{
+	unsigned long base_rb = (cand + len * 4 + 7) & ~7ULL;
 	for (int delta = 0; delta < 4096; delta += 8) {
 		for (int sgn = 0; sgn < 2; sgn++) {
-			unsigned long rb_addr = sgn ? base_rb + delta : base_rb - delta;
+			unsigned long rb_addr;
+			unsigned long rb;
+
 			if (delta == 0 && sgn == 1)
 				continue;
-			unsigned long rb;
+			rb_addr = sgn ? base_rb + delta : base_rb - delta;
 			if (safe_read(&rb, (void *)rb_addr, 8))
 				continue;
 
 			int skip = 0;
 			for (skip = 0; skip < 20; skip++) {
 				u32 zv;
-				if (safe_read(&zv, (void *)(best_cand + skip * 4), 4))
+				if (safe_read(&zv, (void *)(cand + skip * 4), 4))
 					break;
 				if (zv != 0)
 					break;
@@ -350,7 +264,7 @@ static int discover_universal(unsigned long ti_addr)
 			int vok = 1;
 			for (int i = 0; i < 3 && vok; i++) {
 				u32 o;
-				if (safe_read(&o, (void *)(best_cand + (skip + i) * 4), 4))
+				if (safe_read(&o, (void *)(cand + (skip + i) * 4), 4))
 					break;
 				char name[KSYM_SYMBOL_LEN];
 				sprint_symbol(name, rb + o);
@@ -360,20 +274,94 @@ static int discover_universal(unsigned long ti_addr)
 			if (!vok)
 				continue;
 
-			kloffs_addr = best_cand;
-			klnum_val = best_len;
-			klindex_addr = ti_addr;
-			klbase_addr = rb_addr;
-			klbase_val = rb;
-			is_v1_layout = (best_cand < ti_addr) ? 1 : 0;
-ks_dbg("[ksymless] universal: sorted=%u rb=0x%lx v%d\n",
-		best_len, rb, is_v1_layout ? 1 : 2);
+			if (rb_out)
+				*rb_out = rb;
+			if (rb_addr_out)
+				*rb_addr_out = rb_addr;
 			return 1;
 		}
 	}
-
-	ks_dbg("[ksymless] RB verification failed\n");
 	return 0;
+}
+
+static int scan_zerou32(unsigned long start, unsigned long end, int dir,
+			 unsigned long *best_cand, int *best_len)
+{
+	int found = 0;
+
+	for (unsigned long pg = start; dir > 0 ? pg < end : pg > end;
+	     pg += dir * 16 * 0x1000) {
+		if (safe_read(bigbuf, (void *)pg, 16 * 0x1000)) {
+			if (dir > 0)
+				break;
+			continue;
+		}
+
+		for (int pi = 0; pi < 16; pi++) {
+			int idx = dir > 0 ? pi : 15 - pi;
+			unsigned int *buf = &bigbuf[idx * 1024];
+			unsigned long base = pg + idx * 0x1000;
+
+			for (int off = 0; off < 0x1000; off += 4) {
+				if (buf[off / 4] != 0)
+					continue;
+
+				unsigned long cand = base + off;
+				int len = 0, prev = -1;
+				for (int i = 0; i < 500000; i++) {
+					unsigned int v;
+					if (safe_read(&v, (void *)(cand + i * 4), 4))
+						break;
+					if ((int)v < prev)
+						break;
+					prev = (int)v;
+					len++;
+				}
+				if (len < 5000 || len <= *best_len)
+					continue;
+
+				unsigned long rb, rb_addr;
+				if (!verify_offsets_rb(cand, len, &rb, &rb_addr))
+					continue;
+
+				*best_cand = cand;
+				*best_len = len;
+				kloffs_addr = cand;
+				klnum_val = len;
+				klbase_addr = rb_addr;
+				klbase_val = rb;
+				found = 1;
+				ks_dbg("[ksymless] hit dir=%d pg=0x%lx sorted=%d\n",
+					dir, base, len);
+				if (dir > 0)
+					return found;
+			}
+		}
+	}
+	return found;
+}
+
+static int discover_kallsyms(unsigned long ti_addr)
+{
+	unsigned long best_cand = 0;
+	int best_len = 0;
+
+	if (scan_zerou32((ti_addr + 0x1000) & ~0xFFFULL,
+			 ti_addr + 0x400000, 1, &best_cand, &best_len))
+		goto found;
+	if (scan_zerou32(ti_addr & ~0xFFFULL,
+			 kernel_base, -1, &best_cand, &best_len))
+		goto found;
+
+	ks_dbg("[ksymless] no offsets found\n");
+	return 0;
+
+found:
+	klindex_addr = ti_addr;
+	is_v1_layout = (kloffs_addr < ti_addr) ? 1 : 0;
+	ks_dbg("[ksymless] discovered: sorted=%u v%d\n",
+		klnum_val, is_v1_layout ? 1 : 2);
+	return 1;
 }
 
 static unsigned long find_token_index(unsigned long start)
@@ -388,9 +376,7 @@ static unsigned long find_token_index(unsigned long start)
 
 			for (int off = 512; off < 0x1000; off += 4) {
 				unsigned short *ti = (unsigned short *)((unsigned char *)buf + off - 512);
-				if (ti[0] != 0)
-					continue;
-				if (!check_token_index(ti))
+				if (!check_ti_strong(ti))
 					continue;
 				return base + off - 512;
 			}
@@ -414,7 +400,7 @@ ks_dbg("[ksymless] token_index not found\n");
 		return;
 	}
 ks_dbg("[ksymless] ti=0x%lx\n", ti_addr);
-	if (!discover_universal(ti_addr)) {
+	if (!discover_kallsyms(ti_addr)) {
 ks_dbg("[ksymless] layout: offsets not found\n");
 		return;
 	}
