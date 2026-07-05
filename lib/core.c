@@ -308,15 +308,48 @@ static int scan_zerou32(unsigned long start, unsigned long end, int dir,
 
 				unsigned long cand = base + off;
 				int len = 0, prev = -1;
-				for (int i = 0; i < 500000; i++) {
-					unsigned int v;
-					if (safe_read(&v, (void *)(cand + i * 4), 4))
-						break;
-					if ((int)v < prev)
-						break;
+				int max_i = (4096 - off) / 4;
+				for (int i = 0; i < max_i; i++) {
+					unsigned int v = buf[(off + i * 4) / 4];
+					if ((int)v < prev) {
+						len = i;
+						goto count_done;
+					}
 					prev = (int)v;
-					len++;
 				}
+				len = max_i;
+
+				for (int chunk = idx + 1; chunk < 16 && len < 500000;
+				     chunk++) {
+					unsigned int *pbuf = &bigbuf[chunk * 1024];
+					for (int i = 0; i < 1024 && len < 500000; i++) {
+						unsigned int v = pbuf[i];
+						if ((int)v < prev)
+							goto count_done;
+						prev = (int)v;
+						len++;
+					}
+				}
+
+				for (unsigned long pg = base + (16 - idx) * 0x1000;
+				     len < 500000; pg += 16 * 0x1000) {
+					if (safe_read(bigbuf, (void *)pg, 16 * 0x1000))
+						break;
+					for (int chunk = 0; chunk < 16 && len < 500000;
+					     chunk++) {
+						unsigned int *pbuf =
+							&bigbuf[chunk * 1024];
+						for (int i = 0; i < 1024 && len < 500000;
+						     i++) {
+							unsigned int v = pbuf[i];
+							if ((int)v < prev)
+								goto count_done;
+							prev = (int)v;
+							len++;
+						}
+					}
+				}
+			count_done:
 				if (len < 5000 || len <= *best_len)
 					continue;
 
