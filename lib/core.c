@@ -251,6 +251,15 @@ static int verify_offsets_rb(unsigned long cand, int len,
 			rb_addr = sgn ? base_rb + delta : base_rb - delta;
 			if (safe_read(&rb, (void *)rb_addr, 8))
 				continue;
+			if ((rb & ~0x1FFFFFULL) != kernel_base)
+				continue;
+			{
+				unsigned long ns_check = (rb_addr + 8 + 7) & ~7ULL;
+				unsigned int ns;
+				if (safe_read(&ns, (void *)ns_check, 4) ||
+				    ns != (unsigned int)len)
+					continue;
+			}
 
 			int skip = 0;
 			for (skip = 0; skip < 20; skip++) {
