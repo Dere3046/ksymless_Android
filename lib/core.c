@@ -254,10 +254,27 @@ static int verify_offsets_rb(unsigned long cand, int len,
 			if ((rb & ~0x1FFFFFULL) != kernel_base)
 				continue;
 			{
-				unsigned long ns_check = (rb_addr + 8 + 7) & ~7ULL;
+				unsigned long check = (rb_addr + 8 + 7) & ~7ULL;
+				int ok = 0;
 				unsigned int ns;
-				if (safe_read(&ns, (void *)ns_check, 4) ||
-				    ns != (unsigned int)len)
+				if (!safe_read(&ns, (void *)check, 4) &&
+				    ns == (unsigned int)len)
+					ok = 1;
+				if (!ok) {
+					ok = 1;
+					for (int i = 0; i < 5 && ok; i++) {
+						unsigned char b[3];
+						unsigned int s;
+						if (safe_read(b, (void *)(check + i * 3), 3))
+							ok = 0;
+						else {
+							s = (b[0] << 16) | (b[1] << 8) | b[2];
+							if (s >= (unsigned int)len)
+								ok = 0;
+						}
+					}
+				}
+				if (!ok)
 					continue;
 			}
 
