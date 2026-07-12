@@ -709,6 +709,11 @@ unsigned long kallsyms_name_to_addr(const char *name)
 		unsigned int seq = get_sym_seq(mid);
 		unsigned int off = get_sym_offset(seq);
 		expand_sym(off, nbuf, sizeof(nbuf));
+		{
+			char *dot = strstr(nbuf, ".llvm.");
+			if (dot)
+				*dot = '\0';
+		}
 		int r = strcmp(name, nbuf);
 		if (r > 0)
 			low = mid + 1;
