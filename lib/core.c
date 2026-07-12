@@ -714,6 +714,7 @@ unsigned long kallsyms_name_to_addr(const char *name)
 			if (dot)
 				*dot = '\0';
 		}
+		/* LTO aliases with same cleaned name resolve to smaller address */
 		int r = strcmp(name, nbuf);
 		if (r > 0)
 			low = mid + 1;
